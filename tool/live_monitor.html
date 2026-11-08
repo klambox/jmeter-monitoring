@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JMeter Live Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f7f9; --text: #1d2129; --muted: #6b7280; --line: #e3e5e8;
+    --bad: #d92d20; --warn: #b54708; --ok: #067647;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161a; --panel: #1d2026; --text: #e6e8eb; --muted: #9aa1ab; --line: #2c3037;
+            --bad: #f97066; --warn: #fdb022; --ok: #47cd89; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 12px; color: var(--muted); }
+  .bar select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  .pill { padding: 2px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--text); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .chart { position: relative; height: 460px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  h2 { font-size: 15px; margin: 20px 0 8px; }
+  .scroll { overflow-x: auto; }
+  .dottip { position: absolute; z-index: 3; pointer-events: none; padding: 2px 8px; border: 1px solid; border-radius: 6px;
+    background: var(--panel); font-size: 12px; white-space: nowrap; max-width: 70%; overflow: hidden; text-overflow: ellipsis; }
+  .dottip small { display: block; color: var(--muted); font-size: 11px; }
+  .alerts-tools { margin: 0 0 8px; }
+  .alerts-tools input, .alerts-tools button { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 8px; font: inherit; }
+  .alerts-tools button { cursor: pointer; }
+  .alerts-tools { align-items: flex-end; padding-top: 10px; }
+  .rend { font-size: 11px; color: var(--muted); }
+  .opts { padding-top: 12px; align-items: flex-end; row-gap: 8px; }
+  .opts label { cursor: pointer; white-space: nowrap; font-size: 12px; }
+  .opts select { font-size: 12px; padding: 2px 6px; }
+  .slider-mount { display: flex; align-items: flex-end; }
+  .range-group { display: flex; flex: 1 1 520px; min-width: 0; align-items: flex-end; gap: 8px; }
+  .range-group button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 2px 8px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .slider-mount.wide { flex: 1 1 auto; min-width: 240px; }
+  .slider-mount.wide .rslider { flex: 1; width: auto; }
+  .hint { font-size: 11px; }
+  [hidden] { display: none !important; }
+  .rslider { position: relative; width: 300px; height: 14px; margin: 0 16px; touch-action: none; cursor: pointer; }
+  .rtrack { position: absolute; left: 0; right: 0; top: 6px; height: 2px; border-radius: 1px; background: var(--line); }
+  .rfill { position: absolute; top: 6px; height: 2px; border-radius: 1px; background: var(--muted); opacity: 0.6; cursor: grab; }
+  .rfill::before { content: ''; position: absolute; inset: -6px 0; }  /* grab area for moving the whole range */
+  .rhandle { position: absolute; top: 2px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--muted);
+    opacity: 0.8; cursor: ew-resize; touch-action: none; }
+  .rhandle:hover { opacity: 1; }
+  .rhandle::before { content: ''; position: absolute; inset: -6px; }  /* bigger grab area than the thin handle */
+  .rtip { position: absolute; bottom: 13px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 10px;
+    color: var(--muted); pointer-events: none; }
+  summary { cursor: pointer; list-style: none; user-select: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary h2 { display: inline-block; }
+  summary h2::before { content: '▾'; display: inline-block; width: 1.1em; color: var(--muted); }
+  details:not([open]) > summary h2::before { content: '▸'; }
+  .count { font-weight: 400; color: var(--muted); }
+  .alerts-wrap { overflow: auto; max-height: 360px; border: 1px solid var(--line); border-radius: 8px; }
+  .alerts-wrap thead th { position: sticky; background: var(--panel); z-index: 1; }
+  .alerts-wrap thead tr:first-child th { top: 0; }
+  .alerts-wrap thead tr.filters th { top: 32px; padding: 4px 6px; }
+  th.sortable { cursor: pointer; user-select: none; }
+  .filters input, .filters select { width: 100%; min-width: 70px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font: inherit; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child, td.l, th.l { text-align: left; }
+  td.msg { white-space: normal; max-width: 520px; word-break: break-word; color: var(--muted); }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .empty { color: var(--muted); padding: 10px 0; }
+  /* dot size: same thin gray look as the time range slider */
+  .mini { font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 90px; height: 14px; background: transparent; cursor: pointer; margin: 0; }
+  input[type=range]::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--line); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -4px; border-radius: 50%;
+    background: var(--muted); border: 0; }
+  input[type=range]::-moz-range-track { height: 2px; border-radius: 1px; background: var(--line); }
+  input[type=range]::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); border: 0; }
+  #dotVal { min-width: 1ch; }
+  /* the path box takes the room left of the title; it wraps below the title only when it would get too short */
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px 24px; flex-wrap: wrap; }
+  .top h1 { flex: none; }
+  .track { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: 0 1 auto; min-width: 0; max-width: 100%; margin-left: auto; }
+  .track .row { display: flex; gap: 6px; max-width: 100%; }
+  .track input { width: 24ch; min-width: 120px; flex: 0 1 auto; font-size: 12px; padding: 3px 8px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; }  /* width follows the path length (see fitPath) */
+  .track.collapsed #trackPath, .track.collapsed #browseBtn { display: none; }
+  .track input[readonly] { color: var(--muted); }
+  .track button { font-size: 12px; padding: 3px 10px; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .track button.on { border-color: var(--bad); color: var(--bad); }
+  #trackToggle { padding: 3px 7px; color: var(--muted); letter-spacing: -1px; }
+  .track button:disabled { opacity: 0.45; cursor: default; }
+  #trackMsg { font-size: 11px; color: var(--bad); min-height: 14px; }
+  .legend { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 24px; align-items: flex-start; }
+  .legend-left { flex: 1 1 520px; min-width: 0; }
+  #codeLegend { flex: 0 1 auto; margin-left: auto; justify-content: flex-end; align-items: center; }
+  .legend-tools { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+  .legend-tools input, .legend-tools button { font-size: 12px; padding: 2px 8px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; }
+  .legend-tools button { cursor: pointer; }
+  .legend-items { display: flex; flex-wrap: wrap; gap: 4px 14px; max-height: 96px; overflow: auto; padding: 6px 2px; }
+  .lg { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; cursor: pointer; user-select: none; white-space: nowrap; }
+  .lg i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .lg.off { opacity: 0.4; text-decoration: line-through; }
+  #statsBox .scroll { max-height: 380px; overflow: auto; }
+  #stats th { position: sticky; top: 0; background: var(--panel); }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>JMeter Live Monitor</h1>
+  <div class="track" id="track">
+    <div class="row">
+      <button id="trackToggle" type="button" title="Hide the path box and Browse">&gt;&gt;</button>
+      <input id="trackPath" spellcheck="false" placeholder="CSV file or folder path" title="Path of the CSV to track (a folder uses its newest .csv)">
+      <button id="browseBtn" type="button" title="Pick the CSV in a file dialog">Browse…</button>
+      <button id="trackBtn" type="button">Start tracking</button>
+    </div>
+    <span id="trackMsg"></span>
+  </div>
+</div>
+<div class="bar">
+  <span id="file"></span>
+  <span class="pill" id="samples">0 samples</span>
+  <span class="pill" id="errors">0 errors</span>
+  <span class="pill" id="age"></span>
+  <label>Bucket
+    <select id="interval">
+      <option value="5">5 s</option><option value="10" selected>10 s</option>
+      <option value="30">30 s</option><option value="60">60 s</option>
+    </select>
+  </label>
+  <span id="updated"></span>
+  <span class="hint">Ctrl + drag on the chart to measure, Esc to clear</span>
+</div>
+<div class="bar opts">
+  <label><input type="checkbox" id="lines" checked> Response lines</label>
+  <label><input type="checkbox" id="dots" checked> Error dots</label>
+  <select id="dotcolor" title="Colour of the error dots">
+    <option value="request">dot colour: request</option><option value="code">dot colour: error code</option>
+  </select>
+  <label class="mini">Dot size <input type="range" id="dotsize" min="1" max="6" value="3"> <span id="dotVal"></span></label>
+  <label>Y axis
+    <select id="yscale"><option value="all">fit all</option><option value="lines">fit lines</option><option value="log">log</option></select>
+  </label>
+  <div class="range-group">
+    <div class="slider-mount wide" id="chartRange" title="Part of the run shown in the chart and used by the per request table"></div>
+    <button id="cBox" type="button" title="Use the Ctrl + drag box on the chart as the range">Use measured box</button>
+    <button id="cReset" type="button" title="Whole run, end follows current">Reset</button>
+  </div>
+</div>
+
+<div class="chart">
+  <canvas id="chart"></canvas>
+  <div id="dotTip" class="dottip" hidden></div>
+</div>
+<div class="legend">
+  <div class="legend-left">
+    <div class="legend-tools">
+      <input id="lgFilter" placeholder="filter requests" spellcheck="false">
+      <button id="lgAll" type="button" title="Show the listed requests">All</button>
+      <button id="lgNone" type="button" title="Hide the listed requests">None</button>
+      <span id="lgCount"></span>
+    </div>
+    <div class="legend-items" id="legendItems"></div>
+  </div>
+  <div class="legend-items" id="codeLegend" hidden></div>
+</div>
+
+<details id="statsBox" open>
+  <summary><h2>Per request <span id="statsRange" class="count"></span></h2></summary>
+  <div class="scroll"><table id="stats"></table></div>
+</details>
+
+<h2>Latest errors and slow requests <span id="alertsCount" class="count"></span></h2>
+<div class="bar alerts-tools">
+  <span>Time range</span>
+  <div class="slider-mount" id="alertRange"></div>
+  <button id="aBox" type="button" title="Use the Ctrl + drag box on the chart as the range">Use measured box</button>
+  <button id="aReset" type="button" title="Whole run, end follows current">Reset</button>
+</div>
+<div class="alerts-wrap"><table id="alerts"><thead id="alertsHead"></thead><tbody id="alertsBody"></tbody></table></div>
+
+<script>
+const COLORS = ['#1e1b4b', '#dc2626', '#16a34a', '#eab308', '#7e22ce', '#4b5563', '#fb7185', '#0891b2', '#ea580c'];
+const hidden = new Set();                // requests switched off in the legend
+const seen = new Set();                  // requests that already got their default visibility
+let defaultMode = null;                  // 'all', or 'trans' = only [Trans] lines at first (files with many requests)
+let chart;
+const colorOf = i => i < COLORS.length ? COLORS[i] : `hsl(${Math.round(i * 137.5) % 360} 62% 52%)`;
+let axis = { start: 0, interval: 10 };  // epoch ms of the first bucket, bucket size in s
+let sel = null;                          // measured rectangle: {t1, y1, t2, y2} (epoch ms, ms)
+let dragging = false;
+let errorDots = [];                      // failed samples: {ts, label, elapsed}
+
+function fmtDuration(s) {
+  if (s < 60) return (s < 10 ? s.toFixed(1) : Math.round(s)) + ' s';
+  if (s < 3600) return (s / 60).toFixed(1) + ' min';
+  return (s / 3600).toFixed(2) + ' hr';
+}
+
+// same adaptive units as the duration, starting from ms
+function fmtMs(ms) {
+  return ms < 1000 ? Math.round(ms) + ' ms' : fmtDuration(ms / 1000);
+}
+
+// x scale is a category axis: bucket i sits at pixel x0 + i * (x1 - x0)
+function xMap(c) {
+  const x = c.scales.x, n = c.data.labels.length;
+  const x0 = x.getPixelForValue(0);
+  const w = n > 1 ? x.getPixelForValue(1) - x0 : 1;
+  return { x0, w };
+}
+const timeToPx = (c, t) => { const m = xMap(c); return m.x0 + (t - axis.start) / (axis.interval * 1000) * m.w; };
+const pxToTime = (c, px) => { const m = xMap(c); return axis.start + (px - m.x0) / m.w * axis.interval * 1000; };
+
+// Error dots. Colour is chosen per request (the line colour) or per error code.
+const CODE_COLORS = { '500': '#dc2626', '502': '#ea580c', '503': '#d97706', '504': '#b45309', '400': '#2563eb',
+                      '401': '#7c3aed', '403': '#9333ea', '404': '#0891b2', '408': '#0d9488', '429': '#db2777' };
+function codeColor(code) {
+  if (CODE_COLORS[code]) return CODE_COLORS[code];
+  let h = 0;  // other codes (e.g. "Non HTTP response code: ...") get a stable colour from the text
+  for (const ch of String(code)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `hsl(${h % 360} 60% 50%)`;
+}
+let dotHover = false;
+
+function dotList(c) {
+  if (!$('dots').checked) return [];
+  const a = c.chartArea, r = +$('dotsize').value, byCode = $('dotcolor').value === 'code';
+  const sets = new Map(c.data.datasets.map(s => [s.label, s]));
+  const out = [];
+  errorDots.forEach(e => {
+    const ds = sets.get(e.label);
+    if (!ds || ds.hidden) return;
+    // with "fit lines" the axis can end below a slow error: park that dot on the top edge
+    out.push({ e, color: byCode ? codeColor(e.code) : ds.borderColor, reqColor: ds.borderColor,
+               x: timeToPx(c, e.ts), y: Math.max(c.scales.y.getPixelForValue(e.elapsed), a.top + r) });
+  });
+  return out;
+}
+
+const measurePlugin = {
+  id: 'measure',
+  afterDatasetsDraw(c) {
+    const a = c.chartArea, ctx = c.ctx;
+    // one dot per failed sample
+    ctx.save();
+    ctx.beginPath(); ctx.rect(a.left, a.top, a.right - a.left, a.bottom - a.top); ctx.clip();
+    // small translucent dots: where they pile up the colour gets darker, which shows the error density
+    const r = +$('dotsize').value, outline = r >= 4;
+    ctx.lineWidth = 1; ctx.strokeStyle = css('--bg'); ctx.globalAlpha = outline ? 0.85 : 0.5;
+    dotList(c).forEach(d => {
+      ctx.fillStyle = d.color;
+      ctx.beginPath(); ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+      ctx.fill(); if (outline) ctx.stroke();
+    });
+    ctx.restore();
+    if (!sel) return;
+    const xa = timeToPx(c, sel.t1), xb = timeToPx(c, sel.t2);
+    const ya = c.scales.y.getPixelForValue(sel.y1), yb = c.scales.y.getPixelForValue(sel.y2);
+    const x = Math.min(xa, xb), y = Math.min(ya, yb), w = Math.abs(xb - xa), h = Math.abs(yb - ya);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(a.left, a.top, a.right - a.left, a.bottom - a.top); ctx.clip();
+    ctx.fillStyle = 'rgba(37, 99, 235, 0.15)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]); ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    const clock = t => new Date(t).toLocaleTimeString('en-GB');  // HH:mm:ss, same as the x axis
+    // 2 x 2 grid of [name, value] cells with faint borders
+    const grid = [[['start:', clock(Math.min(sel.t1, sel.t2))], ['end:', clock(Math.max(sel.t1, sel.t2))]],
+                  [['duration:', fmtDuration(Math.abs(sel.t2 - sel.t1) / 1000)], ['Δ resp:', fmtMs(Math.abs(sel.y2 - sel.y1))]]];
+    ctx.font = '12px system-ui, sans-serif';
+    const pad = 6, rowH = 20;
+    const wid = s => ctx.measureText(s).width;
+    const nameW = [0, 1].map(j => Math.max(...grid.map(r => wid(r[j][0]))) + 8);   // values start in one column per column
+    const cellW = [0, 1].map(j => pad + nameW[j] + Math.max(...grid.map(r => wid(r[j][1]))) + pad);
+    const tw = cellW[0] + cellW[1], th = grid.length * rowH;
+    const lx = Math.min(Math.max(x, a.left), a.right - tw), ly = Math.min(Math.max(y - th - 2 > a.top ? y - th - 2 : y + 2, a.top), a.bottom - th);
+    ctx.fillStyle = css('--panel'); ctx.fillRect(lx, ly, tw, th);
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)'; ctx.lineWidth = 1;
+    ctx.strokeRect(lx + 0.5, ly + 0.5, tw - 1, th - 1);
+    ctx.beginPath();
+    ctx.moveTo(lx + cellW[0] + 0.5, ly); ctx.lineTo(lx + cellW[0] + 0.5, ly + th);
+    ctx.moveTo(lx, ly + rowH + 0.5); ctx.lineTo(lx + tw, ly + rowH + 0.5);
+    ctx.stroke();
+    ctx.textBaseline = 'middle';
+    grid.forEach((row, i) => row.forEach((cell, j) => {
+      const cx = lx + (j ? cellW[0] : 0) + pad, cy = ly + i * rowH + rowH / 2;
+      ctx.textAlign = 'left';  ctx.fillStyle = css('--muted'); ctx.fillText(cell[0], cx, cy);
+      ctx.textAlign = 'right'; ctx.fillStyle = css('--text'); ctx.fillText(cell[1], cx - pad + cellW[j] - pad, cy);  // value flush right
+    }));
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+};
+
+// "fit all": y axis reaches the slowest error dot; "fit lines": it follows the lines only
+function applyYScale(c) {
+  const log = $('yscale').value === 'log';
+  c.options.scales.y.type = log ? 'logarithmic' : 'linear';
+  c.options.scales.y.min = log ? 10 : undefined;
+  c.options.scales.y.beginAtZero = !log;
+  const withDots = $('yscale').value !== 'lines' && $('dots').checked;
+  c.options.scales.y.suggestedMax = withDots ? Math.max(0, ...errorDots.filter(e => !chartSlider || chartSlider.has(e.ts)).map(e => e.elapsed)) * 1.05 || undefined : undefined;
+}
+
+// lines off: keep the datasets (colours, legend, dots) but stop drawing and hovering them
+function applyLines(c) {
+  const on = $('lines').checked;
+  c.data.datasets.forEach(s => { s.showLine = on; s.pointHoverRadius = on ? 4 : 0; });
+  c.options.plugins.tooltip.enabled = on && !dragging && !dotHover;
+}
+
+const SETTINGS = ['lines', 'dots', 'dotsize', 'dotcolor', 'yscale'];
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('liveMonitor') || '{}');
+    SETTINGS.forEach(id => { if (id in s) { const el = $(id); el.type === 'checkbox' ? el.checked = s[id] : el.value = s[id]; } });
+  } catch (e) { /* no storage: keep defaults */ }
+}
+function saveSettings() {
+  try {
+    localStorage.setItem('liveMonitor', JSON.stringify(Object.fromEntries(SETTINGS.map(id => [id, $(id).type === 'checkbox' ? $(id).checked : $(id).value]))));
+  } catch (e) { /* ignore */ }
+}
+function bindSettings() {
+  SETTINGS.forEach(id => $(id).addEventListener('input', () => {
+    saveSettings();
+    if (chart) { applyLines(chart); applyYScale(chart); chart.update('none'); }
+    renderCodeLegend();
+    $('dotTip').hidden = true;
+  }));
+}
+
+function bindMeasure(c) {
+  const canvas = c.canvas;
+  const point = e => {
+    const r = canvas.getBoundingClientRect(), a = c.chartArea;
+    const px = Math.min(Math.max(e.clientX - r.left, a.left), a.right);
+    const py = Math.min(Math.max(e.clientY - r.top, a.top), a.bottom);
+    return { t: pxToTime(c, px), y: c.scales.y.getValueForPixel(py) };
+  };
+  canvas.addEventListener('mousedown', e => {
+    if (!e.ctrlKey) { if (sel) { sel = null; c.update('none'); } return; }
+    e.preventDefault();
+    const p = point(e);
+    sel = { t1: p.t, y1: p.y, t2: p.t, y2: p.y };
+    dragging = true;
+    c.options.plugins.tooltip.enabled = false;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const p = point(e);
+    sel.t2 = p.t; sel.y2 = p.y;
+    c.draw();
+  });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    applyLines(c);
+    if (Math.abs(sel.t2 - sel.t1) < 1 && Math.abs(sel.y2 - sel.y1) < 1) sel = null;  // plain click, no drag
+    c.update('none');
+  });
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && sel) { sel = null; c.update('none'); } });
+}
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function ensureChart() {
+  if (chart) return chart;
+  chart = new Chart($('chart'), {
+    type: 'line',
+    plugins: [measurePlugin],
+    data: { labels: [], datasets: [] },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false, spanGaps: true,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { ticks: { maxRotation: 90, minRotation: 90, autoSkip: true, color: css('--muted') }, grid: { display: false } },
+        y: { beginAtZero: true, title: { display: true, text: 'Milliseconds', color: css('--muted') },
+             ticks: { color: css('--muted') }, grid: { color: css('--line') } }
+      },
+      plugins: {
+        legend: { display: false },  // own HTML legend below the chart: scrolls and filters when there are many requests
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y} ms` } }
+      }
+    }
+  });
+  bindMeasure(chart);
+  bindDotHover(chart);
+  return chart;
+}
+
+let legendSeries = [];  // [{label, color}] in chart order
+
+function renderLegend() {
+  const f = $('lgFilter').value.trim().toLowerCase();
+  const items = legendSeries.filter(s => s.label.toLowerCase().includes(f));
+  $('legendItems').innerHTML = items.map(s =>
+    `<span class="lg ${hidden.has(s.label) ? 'off' : ''}" data-label="${esc(s.label)}"><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('');
+  const on = legendSeries.filter(s => !hidden.has(s.label)).length;
+  $('lgCount').textContent = legendSeries.length ? `${on} of ${legendSeries.length} shown` : '';
+}
+
+// legend of the error code colours, only while the dots are coloured by error code
+function renderCodeLegend() {
+  const box = $('codeLegend');
+  const show = $('dotcolor').value === 'code' && $('dots').checked && errorDots.length > 0;
+  box.hidden = !show;
+  if (!show) return;
+  const counts = new Map();
+  errorDots.forEach(e => counts.set(e.code, (counts.get(e.code) || 0) + 1));
+  box.innerHTML = '<span class="legend-tools">Error code</span>' + [...counts].sort((a, b) => b[1] - a[1]).map(([code, n]) =>
+    `<span class="lg" style="cursor:default"><i style="background:${codeColor(code)}"></i>${esc(code)} (${n})</span>`).join('');
+}
+
+// hover a dot: the value that the dot colour does not already show, drawn in the colour of that value
+function bindDotHover(c) {
+  const tip = $('dotTip'), box = c.canvas.parentElement;
+  const hide = () => {
+    tip.hidden = true;
+    if (dotHover) { dotHover = false; applyLines(c); c.update('none'); }
+  };
+  c.canvas.addEventListener('mousemove', ev => {
+    if (dragging) { hide(); return; }
+    const cr = c.canvas.getBoundingClientRect(), mx = ev.clientX - cr.left, my = ev.clientY - cr.top;
+    const reach = Math.max(+$('dotsize').value, 4) + 2;
+    let best = null, near = 0;
+    dotList(c).forEach(d => {
+      const dist = Math.hypot(d.x - mx, d.y - my);
+      if (dist > reach) return;
+      near++;
+      if (!best || dist <= best.dist) best = { ...d, dist };
+    });
+    if (!best) { hide(); return; }
+    const byCode = $('dotcolor').value === 'code', e = best.e;
+    const color = byCode ? best.reqColor : codeColor(e.code);
+    tip.style.color = color; tip.style.borderColor = color;
+    tip.innerHTML = `${esc(byCode ? e.label : e.code)}<small>${new Date(e.ts).toLocaleTimeString('en-GB')} · ` +
+      `${e.elapsed.toLocaleString()} ms${near > 1 ? ` · +${near - 1} nearby` : ''}</small>`;
+    tip.hidden = false;
+    const br = box.getBoundingClientRect(), tw = tip.offsetWidth;
+    let left = ev.clientX - br.left + 14;
+    if (left + tw > br.width - 4) left = Math.max(4, ev.clientX - br.left - tw - 14);  // flip to the left near the edge
+    tip.style.left = left + 'px';
+    tip.style.top = (ev.clientY - br.top - 8) + 'px';
+    if (!dotHover) { dotHover = true; applyLines(c); c.update('none'); }  // the line tooltip would overlap
+  });
+  c.canvas.addEventListener('mouseleave', hide);
+}
+
+function applyHidden() {
+  if (chart) { chart.data.datasets.forEach(s => { s.hidden = hidden.has(s.label); }); chart.update('none'); }
+  renderLegend();
+}
+
+function bindLegend() {
+  $('legendItems').addEventListener('click', e => {
+    const el = e.target.closest('.lg');
+    if (!el) return;
+    const label = el.dataset.label;
+    hidden.has(label) ? hidden.delete(label) : hidden.add(label);
+    applyHidden();
+  });
+  $('lgFilter').addEventListener('input', renderLegend);
+  // All / None act on the requests that match the filter
+  const listed = () => legendSeries.filter(s => s.label.toLowerCase().includes($('lgFilter').value.trim().toLowerCase()));
+  $('lgAll').onclick = () => { listed().forEach(s => hidden.delete(s.label)); applyHidden(); };
+  $('lgNone').onclick = () => { listed().forEach(s => hidden.add(s.label)); applyHidden(); };
+}
+
+// Start / stop tracking: the box and button at the top right
+// the box is as wide as the path it holds (up to the room that is left)
+function fitPath() {
+  const n = Math.max(24, $('trackPath').value.length + 2);
+  $('trackPath').style.width = `calc(${n}ch + 18px)`;
+}
+
+function setTrackOpen(open) {
+  $('track').classList.toggle('collapsed', !open);
+  $('trackToggle').textContent = open ? '>>' : '<<';
+  $('trackToggle').title = open ? 'Hide the path box and Browse' : 'Show the path box and Browse';
+  try { localStorage.setItem('liveMonitor.trackOpen', open ? '1' : '0'); } catch (e) { /* ignore */ }
+}
+
+function setTrackUI(tracking, path) {
+  $('trackBtn').textContent = tracking ? 'Stop tracking' : 'Start tracking';
+  $('trackBtn').classList.toggle('on', tracking);
+  $('trackPath').readOnly = tracking;
+  $('browseBtn').disabled = tracking;  // stop first, then pick another file
+  if (tracking) { $('trackPath').value = path; $('trackPath').scrollLeft = $('trackPath').scrollWidth; }  // show the file name end
+  else if (!$('trackPath').value && path) $('trackPath').value = path;
+  fitPath();
+}
+
+function resetClient() {  // a different file: forget everything tied to the previous one
+  hidden.clear(); seen.clear(); defaultMode = null;
+  sel = null; errorDots = []; alertRows = []; spanFirst = spanLast = 0;
+  alertSlider.setSpan(0, 0); chartSlider.setSpan(0, 0);
+  alertSlider.reset(); chartSlider.reset();
+}
+
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  return { ok: r.ok, ...(await r.json()) };
+}
+
+function bindTrack() {
+  const tracking = () => $('trackBtn').classList.contains('on');
+  const start = async () => {
+    const r = await post('/api/track', { path: $('trackPath').value });
+    if (!r.ok) { $('trackMsg').textContent = r.error || 'cannot start'; return; }
+    resetClient();
+    load();
+  };
+  const go = async () => {
+    $('trackMsg').textContent = '';
+    if (tracking()) { await post('/api/stop'); load(); } else await start();
+  };
+  $('trackBtn').onclick = go;
+  $('trackPath').addEventListener('input', fitPath);
+  $('trackToggle').onclick = () => setTrackOpen($('track').classList.contains('collapsed'));
+  try { if (localStorage.getItem('liveMonitor.trackOpen') === '0') setTrackOpen(false); } catch (e) { /* default: shown */ }
+  fitPath();
+  $('trackPath').addEventListener('keydown', e => { if (e.key === 'Enter' && !tracking()) go(); });
+
+  // the file dialog opens on the machine running live_monitor.py (a page cannot read a full path itself)
+  $('browseBtn').onclick = async () => {
+    $('browseBtn').disabled = true;
+    $('trackMsg').textContent = '';
+    try {
+      const r = await post('/api/browse', { path: $('trackPath').value });
+      if (!r.ok) $('trackMsg').textContent = r.error || 'cannot open the file dialog';
+      else if (r.path) { $('trackPath').value = r.path; fitPath(); await start(); }
+    } finally {
+      $('browseBtn').disabled = tracking();
+    }
+  };
+}
+
+function render(d) {
+  setTrackUI(d.tracking, d.path);
+  $('file').textContent = d.file;
+  $('samples').textContent = d.samples + ' samples';
+  const errs = d.errorsTotal || 0;  // whole run, whatever range the statistics use
+  $('errors').textContent = errs + ' errors';
+  $('errors').classList.toggle('bad', errs > 0);
+  $('age').textContent = d.lastAge === null ? 'waiting for data' : `last sample ${fmtDuration(d.lastAge)} ago`;
+  $('updated').textContent = 'refreshed ' + new Date().toLocaleTimeString();
+
+  const c = ensureChart();
+  axis = { start: d.start || 0, interval: d.interval };
+  errorDots = d.errors || [];
+  spanFirst = d.first || 0; spanLast = d.last || 0;
+  alertSlider.setSpan(spanFirst, spanLast); chartSlider.setSpan(spanFirst, spanLast);
+  renderCodeLegend();
+  applyLines(c);
+  applyYScale(c);
+  // files with many requests (e.g. one line per page resource) start with the [Trans] lines only
+  if (defaultMode === null && d.series.length) {
+    defaultMode = d.series.length > 12 && d.series.some(s => s.label.startsWith('[Trans]')) ? 'trans' : 'all';
+  }
+  d.series.forEach(s => {
+    if (seen.has(s.label)) return;
+    seen.add(s.label);
+    if (defaultMode === 'trans' && !s.label.startsWith('[Trans]')) hidden.add(s.label);
+  });
+  legendSeries = d.series.map((s, i) => ({ label: s.label, color: colorOf(i) }));
+  renderLegend();
+  c.data.labels = d.buckets;
+  c.data.datasets = d.series.map((s, i) => ({
+    label: s.label, data: s.data, borderColor: colorOf(i),
+    backgroundColor: colorOf(i), borderWidth: 2, pointRadius: 0, pointHoverRadius: $('lines').checked ? 4 : 0,
+    tension: 0, hidden: hidden.has(s.label), showLine: $('lines').checked
+  }));
+  applyChartRange();
+
+  // per request statistics of the part of the run shown in the chart
+  const oldServer = d.rangeFrom === undefined;  // live_monitor.py was not restarted after the page was updated
+  const v = x => x === undefined ? '–' : x;
+  $('statsRange').textContent = oldServer ? '(restart live_monitor.py: the server is older than this page)'
+    : '(' + (d.rangeFrom === null && d.rangeTo === null ? 'whole run'
+    : `${clock(d.rangeFrom === null ? spanFirst : d.rangeFrom)} – ${d.rangeTo === null ? 'current' : clock(d.rangeTo)}`) + ')';
+  const head = ['Request', 'Samples', 'Errors', 'Err %', 'Min ms', 'Avg ms', 'Median ms', 'P90 ms', 'P95 ms', 'P99 ms', 'Max ms', 'Slow limit ms'];
+  $('stats').innerHTML = '<tr>' + head.map((h, i) => `<th class="${i ? '' : 'l'}">${h}</th>`).join('') + '</tr>' +
+    d.stats.map(s => {
+      const pct = s.count ? (s.errors * 100 / s.count).toFixed(1) : '0.0';
+      return `<tr><td>${esc(s.label)}</td><td>${s.count}</td>` +
+        `<td class="${s.errors ? 'bad' : ''}">${s.errors}</td><td class="${s.errors ? 'bad' : ''}">${pct}</td>` +
+        `<td>${v(s.min)}</td><td>${s.avg}</td><td>${v(s.median)}</td><td>${v(s.p90)}</td><td>${v(s.p95)}</td><td>${v(s.p99)}</td>` +
+        `<td class="${s.max > s.threshold ? 'warn' : ''}">${s.max}</td><td>${s.threshold}</td></tr>`;
+    }).join('') || '<tr><td class="empty l" colspan="12">No samples in this range.</td></tr>';
+
+  alertRows = d.alerts;
+  renderAlerts();
+}
+
+// Latest errors and slow requests: header and filter row are built once, only the body is redrawn
+const ACOLS = [
+  { k: 'time', sort: 'ts', label: 'Time', filter: 'text' },
+  { k: 'label', label: 'Request', filter: 'text' },
+  { k: 'kind', label: 'Type', filter: 'select' },
+  { k: 'elapsed', label: 'Elapsed ms', num: true, filter: 'text', hint: '>20000' },
+  { k: 'code', label: 'Code', filter: 'text' },
+  { k: 'message', label: 'Message', filter: 'text' }
+];
+let alertRows = [];
+const aSort = { k: 'time', dir: -1 };
+const aFilter = {};
+
+function buildAlertHead() {
+  const sorts = ACOLS.map((c, i) => `<th class="${c.num ? '' : 'l'} sortable" data-i="${i}">${c.label}<span class="arrow"></span></th>`).join('');
+  const filters = ACOLS.map((c, i) => c.filter === 'select'
+    ? `<th class="l"><select data-i="${i}"><option value="">all</option><option>ERROR</option><option>SLOW</option></select></th>`
+    : `<th class="l"><input data-i="${i}" placeholder="${c.hint || 'filter'}"></th>`).join('');
+  $('alertsHead').innerHTML = `<tr>${sorts}</tr><tr class="filters">${filters}</tr>`;
+  $('alertsHead').querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
+    const k = ACOLS[th.dataset.i].k;
+    aSort.dir = aSort.k === k ? -aSort.dir : (ACOLS[th.dataset.i].num ? -1 : 1);
+    aSort.k = k;
+    renderAlerts();
+  });
+  $('alertsHead').querySelectorAll('input, select').forEach(el => {
+    el.oninput = el.onchange = () => { aFilter[ACOLS[el.dataset.i].k] = el.value; renderAlerts(); };
+  });
+}
+
+// Two-handle range slider over the whole run (used for the alerts table and for the chart).
+// start / end are epoch ms, null = "from the beginning" / "current". Dragging the filled part moves both handles and keeps
+// the period; when it is dropped at the right edge the period then slides along with the run.
+let spanFirst = 0, spanLast = 0;
+let alertSlider, chartSlider;
+const clock = t => new Date(t).toLocaleTimeString('en-GB');
+
+function makeSlider(mount, onChange) {
+  mount.innerHTML = '<span class="rend rfirst">start</span><div class="rslider"><div class="rtrack"></div>' +
+    '<div class="rfill" title="Drag to move the whole range"></div>' +
+    '<div class="rhandle h1" title="Drag to set the start"><span class="rtip"></span></div>' +
+    '<div class="rhandle h2" title="Drag to the far right for current"><span class="rtip"></span></div></div>' +
+    '<span class="rend rlast">end</span>';
+  const q = sel => mount.querySelector(sel);
+  const rs = q('.rslider'), fill = q('.rfill'), h1 = q('.h1'), h2 = q('.h2');
+  const S = { first: 0, last: 0, start: null, end: null, follow: 0 };  // follow: period (ms) of a window that slides with the run
+  const span = () => S.last - S.first;
+  const frac = ts => span() > 0 ? Math.min(1, Math.max(0, (ts - S.first) / span())) : 0;
+
+  S.range = () => S.follow ? { from: Math.max(S.first, S.last - S.follow), to: null } : { from: S.start, to: S.end };
+  S.has = ts => { const r = S.range(); return (r.from === null || ts >= r.from) && (r.to === null || ts <= r.to); };
+  S.draw = () => {
+    const r = S.range(), f1 = r.from === null ? 0 : frac(r.from), f2 = r.to === null ? 1 : frac(r.to);
+    h1.style.left = fill.style.left = f1 * 100 + '%';
+    h2.style.left = f2 * 100 + '%';
+    fill.style.width = (f2 - f1) * 100 + '%';
+    h1.firstChild.textContent = S.last ? clock(r.from === null ? S.first : r.from) : '';
+    h2.firstChild.textContent = r.to === null ? 'current' : clock(r.to);
+    q('.rfirst').textContent = S.last ? clock(S.first) : 'start';
+    q('.rlast').textContent = S.last ? clock(S.last) : 'end';
+  };
+  S.setSpan = (first, last) => { S.first = first; S.last = last; S.draw(); };
+  S.set = (from, to) => {  // explicit range, e.g. the measured box
+    S.follow = 0;
+    S.start = from <= S.first ? null : from;
+    S.end = to >= S.last ? null : to;
+    S.draw(); onChange();
+  };
+  S.reset = () => { S.start = S.end = null; S.follow = 0; S.draw(); onChange(); };
+
+  const SNAP = 0.012;  // within 1.2% of an edge a handle sticks to it
+  let active = null, grab = null;
+  const fracAt = e => { const r = rs.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+  const move = e => {
+    if (!active || span() <= 0) return;
+    const f = fracAt(e), ts = S.first + f * span();
+    if (active === 'move') {
+      const period = grab.to - grab.from;
+      const from = Math.min(Math.max(grab.from + (ts - grab.ts), S.first), S.last - period);
+      if (from > S.first && from + period >= S.last - 1) { S.follow = period; S.start = S.end = null; }  // dropped at the right edge: slide with the run
+      else { S.follow = 0; S.start = from <= S.first ? null : from; S.end = from + period >= S.last ? null : from + period; }
+    } else if (active === 1) {
+      S.start = f <= SNAP ? null : Math.min(ts, S.end === null ? S.last : S.end);
+    } else {
+      S.end = f >= 1 - SNAP ? null : Math.max(ts, S.start === null ? S.first : S.start);
+    }
+    S.draw(); onChange();
+  };
+  rs.addEventListener('pointerdown', e => {
+    if (span() <= 0) return;
+    const r = S.range(), f = fracAt(e);
+    const from = r.from === null ? S.first : r.from, to = r.to === null ? S.last : r.to;
+    if (e.target === fill) {
+      active = 'move';
+      grab = { ts: S.first + f * span(), from, to };
+      rs.setPointerCapture(e.pointerId);
+      return;  // a plain press changes nothing, only a drag does
+    }
+    if (S.follow) { S.start = r.from; S.end = null; S.follow = 0; }  // grabbing a handle ends the sliding window
+    active = e.target === h1 ? 1 : e.target === h2 ? 2 : (Math.abs(f - frac(from)) <= Math.abs(f - frac(to)) ? 1 : 2);
+    rs.setPointerCapture(e.pointerId);
+    move(e);
+  });
+  rs.addEventListener('pointermove', move);
+  rs.addEventListener('pointerup', () => { active = null; });
+  rs.addEventListener('pointercancel', () => { active = null; });
+  S.draw();
+  return S;
+}
+
+const inRange = a => alertSlider.has(a.ts);
+
+// the chart shows only the part of the run picked in its slider
+function applyChartRange() {
+  if (!chart) return;
+  const n = chart.data.labels.length, r = chartSlider.range(), step = axis.interval * 1000;
+  const x = chart.options.scales.x;
+  if (n < 2) { x.min = x.max = undefined; chart.update('none'); return; }
+  let i0 = r.from === null ? 0 : Math.max(0, Math.floor((r.from - axis.start) / step));
+  let i1 = r.to === null ? n - 1 : Math.min(n - 1, Math.ceil((r.to - axis.start) / step));
+  if (i1 < i0 + 1) i0 = Math.max(0, i1 - 1);  // a category axis needs two points
+  x.min = i0 > 0 ? i0 : undefined;
+  x.max = i1 < n - 1 ? i1 : undefined;
+  applyYScale(chart);
+  chart.update('none');
+}
+
+// the per-request table is computed on the server for the picked range: ask again shortly after the slider stops moving
+let statsTimer;
+function reloadStats() { clearTimeout(statsTimer); statsTimer = setTimeout(load, 250); }
+
+function bindRange() {
+  alertSlider = makeSlider($('alertRange'), () => renderAlerts());
+  chartSlider = makeSlider($('chartRange'), () => { applyChartRange(); reloadStats(); });
+  $('cReset').onclick = () => chartSlider.reset();
+  $('cBox').onclick = () => { if (sel) chartSlider.set(Math.min(sel.t1, sel.t2), Math.max(sel.t1, sel.t2)); };
+  $('aReset').onclick = () => alertSlider.reset();
+  $('aBox').onclick = () => { if (sel) alertSlider.set(Math.min(sel.t1, sel.t2), Math.max(sel.t1, sel.t2)); };
+}
+
+function matches(col, a) {
+  const f = (aFilter[col.k] || '').trim();
+  if (!f) return true;
+  if (col.k === 'kind') return a.kind === f;
+  if (col.num) {
+    const m = f.match(/^(>=|<=|>|<)\s*(\d+)$/);
+    if (m) {
+      const v = a.elapsed, n = +m[2];
+      return m[1] === '>' ? v > n : m[1] === '>=' ? v >= n : m[1] === '<' ? v < n : v <= n;
+    }
+  }
+  return String(a[col.k]).toLowerCase().includes(f.toLowerCase());
+}
+
+function renderAlerts() {
+  const col = ACOLS.find(c => c.k === aSort.k), key = col.sort || col.k;
+  const rows = alertRows.filter(a => inRange(a) && ACOLS.every(c => matches(c, a)));
+  rows.sort((x, y) => {
+    const p = x[key], q = y[key];
+    return (typeof p === 'number' ? p - q : String(p).localeCompare(String(q), undefined, { numeric: true })) * aSort.dir;
+  });
+  $('alertsHead').querySelectorAll('th.sortable').forEach(th => {
+    th.querySelector('.arrow').textContent = ACOLS[th.dataset.i].k === aSort.k ? (aSort.dir > 0 ? ' ▲' : ' ▼') : '';
+  });
+  $('alertsCount').textContent = `(${rows.length} of ${alertRows.length})`;
+  $('alertsBody').innerHTML = rows.length
+    ? rows.map(a => `<tr><td class="l">${a.time}</td><td class="l">${esc(a.label)}</td>` +
+        `<td class="l ${a.kind === 'ERROR' ? 'bad' : 'warn'}">${a.kind}</td><td>${a.elapsed}</td><td>${esc(a.code)}</td>` +
+        `<td class="msg">${esc(a.message)}</td></tr>`).join('')
+    : '<tr><td class="empty l" colspan="6">No errors or slow requests match.</td></tr>';
+}
+
+async function load() {
+  try {
+    const rg = chartSlider.range();  // the statistics follow the range shown in the chart
+    const r = await fetch(`/api/data?interval=${$('interval').value}&from=${rg.from === null ? '' : Math.round(rg.from)}&to=${rg.to === null ? '' : Math.round(rg.to)}`);
+    render(await r.json());
+  } catch (e) {
+    $('updated').textContent = 'server not reachable';
+  }
+}
+
+buildAlertHead();
+loadSettings();
+bindSettings();
+const showDot = () => { $('dotVal').textContent = $('dotsize').value; };
+$('dotsize').addEventListener('input', showDot);
+showDot();
+try { if (localStorage.getItem('liveMonitor.statsOpen') === '0') $('statsBox').open = false; } catch (e) { /* default: open */ }
+$('statsBox').addEventListener('toggle', () => {
+  try { localStorage.setItem('liveMonitor.statsOpen', $('statsBox').open ? '1' : '0'); } catch (e) { /* ignore */ }
+});
+bindRange();
+bindLegend();
+bindTrack();
+$('interval').onchange = load;
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>
