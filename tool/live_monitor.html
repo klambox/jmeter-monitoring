@@ -8,11 +8,11 @@
 <style>
   :root {
     --bg: #ffffff; --panel: #f6f7f9; --text: #1d2129; --muted: #6b7280; --line: #e3e5e8;
-    --bad: #d92d20; --warn: #b54708; --ok: #067647;
+    --bad: #d92d20; --warn: #b54708; --ok: #067647; --scroll-thumb: #b4b9c4;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #14161a; --panel: #1d2026; --text: #e6e8eb; --muted: #9aa1ab; --line: #2c3037;
-            --bad: #f97066; --warn: #fdb022; --ok: #47cd89; }
+            --bad: #f97066; --warn: #fdb022; --ok: #47cd89; --scroll-thumb: #565a66; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 16px; background: var(--bg); color: var(--text);
@@ -127,17 +127,16 @@
   input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
   input[type=checkbox]:checked::after { content: ''; position: absolute; left: 4px; top: 1px; width: 3px; height: 7px;
     border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
-  /* scroll bars */
-  html { scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
-  * { scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
-  @supports selector(::-webkit-scrollbar) {
-    * { scrollbar-width: auto; scrollbar-color: auto; }
-    ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
-    ::-webkit-scrollbar-corner { background: transparent; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+  /* scroll bars: thin and themed. The standard scrollbar-* properties sit behind @supports on purpose: Chromium
+     honours them when present and then ignores every ::-webkit-scrollbar rule, so declaring both throws the styling away. */
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
   }
+  ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 3px; }
+  @media (hover: hover) { ::-webkit-scrollbar-thumb:hover { background: var(--muted); } }
   /* dropdown: replaces <select>; the real select stays in the page, hidden, and keeps the value */
   select.dd-src { display: none !important; }
   .dd { position: relative; display: inline-block; vertical-align: middle; }
