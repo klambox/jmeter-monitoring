@@ -112,6 +112,49 @@
   .lg.off { opacity: 0.4; text-decoration: line-through; }
   #statsBox .scroll { max-height: 380px; overflow: auto; }
   #stats th { position: sticky; top: 0; background: var(--panel); }
+  /* ---- custom controls: nothing uses the look of the operating system ---- */
+  :root { --accent: #4f6bed; --hover: rgba(127, 127, 127, 0.14); }
+  @media (prefers-color-scheme: dark) { :root { --accent: #7f93ff; } }
+  button, input, select { -webkit-appearance: none; -moz-appearance: none; appearance: none; font-family: inherit; }
+  button:hover:not(:disabled), .dd-btn:hover { background: var(--hover) !important; }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:focus-visible, input:focus-visible, .dd-btn:focus-visible, .dd-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type=text], input:not([type]) { outline: none; }
+  input[type=text]:focus, input:not([type]):focus { border-color: var(--accent) !important; }
+  ::placeholder { color: var(--muted); opacity: 0.8; }
+  input[type=checkbox] { width: 14px; height: 14px; margin: 0 4px 0 0; vertical-align: -2px; position: relative; cursor: pointer;
+    border: 1px solid var(--muted); border-radius: 3px; background: var(--bg); }
+  input[type=checkbox]:checked { background: var(--accent); border-color: var(--accent); }
+  input[type=checkbox]:checked::after { content: ''; position: absolute; left: 4px; top: 1px; width: 3px; height: 7px;
+    border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  /* scroll bars */
+  html { scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
+  * { scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
+  @supports selector(::-webkit-scrollbar) {
+    * { scrollbar-width: auto; scrollbar-color: auto; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+    ::-webkit-scrollbar-corner { background: transparent; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+  }
+  /* dropdown: replaces <select>; the real select stays in the page, hidden, and keeps the value */
+  select.dd-src { display: none !important; }
+  .dd { position: relative; display: inline-block; vertical-align: middle; }
+  .dd-btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; cursor: pointer;
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit;
+    white-space: nowrap; text-align: left; }
+  .dd-btn::after { content: ''; width: 6px; height: 6px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0;
+    transform: translateY(-2px) rotate(45deg); flex: none; }
+  .dd.open .dd-btn { border-color: var(--accent); }
+  .opts .dd-btn { font-size: 12px; padding: 2px 6px; }
+  .filters .dd { display: block; }
+  .filters .dd-btn { background: var(--bg); border-radius: 4px; padding: 3px 6px; min-width: 70px; }
+  .dd-list { position: fixed; z-index: 1000; margin: 0; padding: 4px; max-height: 260px; overflow: auto; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); font-size: 13px; }
+  .dd-item { padding: 4px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; outline: none; }
+  .dd-item:hover, .dd-item.active { background: var(--hover); }
+  .dd-item.sel { color: var(--accent); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -318,6 +361,84 @@ function applyLines(c) {
   c.data.datasets.forEach(s => { s.showLine = on; s.pointHoverRadius = on ? 4 : 0; });
   c.options.plugins.tooltip.enabled = on && !dragging && !dotHover;
 }
+
+// ---- custom dropdown: builds a button + list for a <select>; the select keeps the value and still gets input/change events
+function enhanceSelect(sel) {
+  if (sel._dd) { sel._dd.sync(); return; }
+  const wrap = document.createElement('div');
+  wrap.className = 'dd';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'dd-btn';
+  btn.setAttribute('aria-haspopup', 'listbox');
+  if (sel.title) btn.title = sel.title;
+  wrap.appendChild(btn);
+  sel.classList.add('dd-src');
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+  let list = null, active = -1;
+  const sync = () => { const o = sel.options[sel.selectedIndex]; btn.textContent = o ? o.textContent : ''; };
+  const close = () => {
+    if (!list) return;
+    list.remove(); list = null; wrap.classList.remove('open');
+    document.removeEventListener('mousedown', outside, true);
+    window.removeEventListener('scroll', onScroll, true);
+    window.removeEventListener('resize', close);
+  };
+  const outside = e => { if (!wrap.contains(e.target) && !(list && list.contains(e.target))) close(); };
+  const onScroll = e => { if (!(list && list.contains(e.target))) close(); };
+  const choose = i => {
+    if (i >= 0 && i < sel.options.length && sel.selectedIndex !== i) {
+      sel.selectedIndex = i;
+      sync();
+      sel.dispatchEvent(new Event('input', { bubbles: true }));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    close(); btn.focus();
+  };
+  const mark = i => {
+    if (!list) return;
+    active = Math.max(0, Math.min(sel.options.length - 1, i));
+    [...list.children].forEach((el, k) => el.classList.toggle('active', k === active));
+    list.children[active].scrollIntoView({ block: 'nearest' });
+  };
+  const open = () => {
+    if (list) return;
+    list = document.createElement('div');
+    list.className = 'dd-list';
+    list.setAttribute('role', 'listbox');
+    [...sel.options].forEach((o, i) => {
+      const it = document.createElement('div');
+      it.className = 'dd-item' + (i === sel.selectedIndex ? ' sel' : '');
+      it.setAttribute('role', 'option');
+      it.textContent = o.textContent;
+      it.onmousedown = e => { e.preventDefault(); choose(i); };
+      list.appendChild(it);
+    });
+    document.body.appendChild(list);
+    const r = btn.getBoundingClientRect();
+    list.style.minWidth = r.width + 'px';
+    const below = innerHeight - r.bottom, h = list.offsetHeight;
+    list.style.left = Math.max(4, Math.min(r.left, innerWidth - list.offsetWidth - 4)) + 'px';
+    list.style.top = (below >= h + 8 || below >= r.top ? r.bottom + 4 : Math.max(4, r.top - h - 4)) + 'px';
+    wrap.classList.add('open');
+    mark(sel.selectedIndex);
+    document.addEventListener('mousedown', outside, true);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', close);
+  };
+  btn.onclick = () => (list ? close() : open());
+  btn.onkeydown = e => {
+    const k = e.key;
+    if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); if (!list) open(); else mark(active + (k === 'ArrowDown' ? 1 : -1)); }
+    else if ((k === 'Enter' || k === ' ') && list) { e.preventDefault(); choose(active); }
+    else if (k === 'Escape' && list) { e.preventDefault(); close(); }
+    else if (k === 'Tab') close();
+  };
+  sync();
+  sel._dd = { sync };
+}
+function enhanceAllSelects(root) { (root || document).querySelectorAll('select').forEach(enhanceSelect); }
 
 const SETTINGS = ['lines', 'dots', 'dotsize', 'dotcolor', 'yscale'];
 function loadSettings() {
@@ -790,6 +911,7 @@ async function load() {
 buildAlertHead();
 loadSettings();
 bindSettings();
+enhanceAllSelects();
 const showDot = () => { $('dotVal').textContent = $('dotsize').value; };
 $('dotsize').addEventListener('input', showDot);
 showDot();

@@ -83,8 +83,9 @@ The run scripts pass two properties to JMeter: `base_dir` (folder of the scripts
 
 ## Notes
 
-- The "Browse..." button needs tkinter and a desktop session. If it is missing, paste the path instead.
-  Install: `brew install python-tk` (Homebrew Python), `sudo apt install python3-tk` (Debian/Ubuntu).
+- The "Browse..." button opens a native file dialog on the machine running the monitor. macOS uses the system
+  dialog (nothing to install). Windows and Linux use tkinter (`sudo apt install python3-tk` on Debian/Ubuntu)
+  and need a desktop session. If the dialog is not available, paste the path into the box instead.
 - On a headless Linux box the browser is not opened automatically; open http://localhost:8765 yourself
   (use an SSH tunnel to view it from another machine, the server only listens on 127.0.0.1).
 

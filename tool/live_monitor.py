@@ -215,23 +215,40 @@ _DIALOG = (
     " filetypes=[('JMeter results', '*.csv *.jtl'), ('All files', '*.*')]))\n")
 
 
+_MAC_SCRIPT = ('on run argv\n'
+               'set prompt to "Select the CSV to track"\n'
+               'if (item 1 of argv) is "" then\n'
+               'return POSIX path of (choose file with prompt prompt)\n'
+               'else\n'
+               'return POSIX path of (choose file with prompt prompt default location (POSIX file (item 1 of argv)))\n'
+               'end if\n'
+               'end run')
+
+
 def browse(current):
-    """Native 'open file' dialog on the machine running this script. It runs in a child process, because Tk must
-    own the main thread (on macOS it can abort the whole process otherwise) and has no display on a headless box."""
+    """Native 'open file' dialog on the machine running this script, in a child process.
+    macOS uses the system dialog through osascript: a bare Tk window started from a server process often never
+    comes to the front there. Windows and Linux use tkinter, which must own the main thread and needs a display."""
     if not _dialog.acquire(blocking=False):
         raise ValueError('A file dialog is already open')
     try:
         text = os.path.expanduser((current or '').strip().strip('"').strip("'"))
         start = Path(text) if text else None
         initial = (start.parent if start.is_file() else start if start.is_dir() else _last_dir[0]) if start else _last_dir[0]
+        initial = str(initial) if initial and Path(initial).is_dir() else ''
+        if sys.platform == 'darwin':
+            cmd = ['osascript', '-e', _MAC_SCRIPT, initial]
+        else:
+            cmd = [sys.executable, '-c', _DIALOG, initial]
         try:
-            r = subprocess.run([sys.executable, '-c', _DIALOG, str(initial) if initial else ''],
-                               capture_output=True, text=True, timeout=600)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         except (OSError, subprocess.SubprocessError):
             raise ValueError('cannot open the file dialog, paste the path instead')
     finally:
         _dialog.release()
     if r.returncode != 0:
+        if sys.platform == 'darwin' and '(-128)' in r.stderr:  # user pressed Cancel
+            return ''
         raise ValueError('file dialog not available (tkinter or a display is missing), paste the path instead')
     chosen = r.stdout.strip()
     if not chosen:
